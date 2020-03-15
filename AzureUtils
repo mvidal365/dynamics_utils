@@ -98,11 +98,7 @@ class AzureUtils
                     }
                 }
             }
-        }
-        else
-        {
-            error("@GCN447");
-        }
+        }      
 
         return ret;
     }
