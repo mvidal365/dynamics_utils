@@ -1,0 +1,247 @@
+using Microsoft.Azure;
+using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Blob;
+using Microsoft.WindowsAzure.Storage.File;
+using System.Collections.Generic;
+using System.Configuration;
+
+class AzureUtils
+{
+    static boolean createAzureFile(AzureFilesConfig	_filesConfig,
+								   Filename			_fileName, 
+								   container		_fileCon = conNull(), 
+								   System.IO.Stream _stream = null, 
+								   boolean			_useHistoricPath = false, 
+								   boolean			_useErrorPath = false)
+    {
+        AzureParameters    azureParameters = AzureParameters::find();
+
+        str         blobName            = azureParameters.AzureBlobName;
+        str         blobPass            = azureParameters.AzureBlobPass;
+        str         blobShareName       = azureParameters.AzureBlobShareName;
+        str         blobDirectory       = _filesConfig.OrigPath;
+        str         outFieldDelimiter   = _filesConfig.FieldDelimiter;
+        str         outRecordDelimiter  = _filesConfig.RecodDelimiter;
+        str         fileName            = _fileName;
+        int         idx;
+        boolean     ret;
+
+        if (_useHistoricPath)
+        {
+            blobDirectory = _filesConfig.historicPath;
+        }
+
+        if (_useErrorPath)
+        {
+            blobDirectory = _filesConfig.errorPath;
+        }
+
+        if (_stream)
+        {
+            _stream.Position = 0;
+        }
+                
+        if (fileName && _filesConfig && (_fileCon || _stream))
+        {
+            System.IO.Stream    fileStream = _stream;
+            TextStreamIo        file;
+
+            if (!fileStream && _fileCon)
+            {                
+                file = TextStreamIo::constructForWrite(65001);                
+
+                if (!_filesConfig.FixedPositions)
+                {
+                    file.outFieldDelimiter(outFieldDelimiter);                    
+                }
+
+                else
+                {
+                    file.outFieldDelimiter("");
+                }
+
+                for (idx=1;idx<=conLen(_fileCon);idx++)
+                {
+                    file.writeExp(conPeek(_fileCon, idx));
+                }
+
+                str filetemppath = File::SendFileToTempStore(file.getStream(), fileName);
+                fileStream = File::UseFileFromURL(filetemppath);
+            }
+
+            var storageCredentials = new Microsoft.WindowsAzure.Storage.Auth.StorageCredentials(blobName, blobPass);
+            CloudStorageAccount storageAccount = new Microsoft.WindowsAzure.Storage.CloudStorageAccount(storageCredentials, true);
+            CloudFileClient fileClient = storageAccount.CreateCloudFileClient();
+            CloudFileShare share = fileClient.GetShareReference(blobShareName);
+            if (share.Exists(null, null))
+            {
+                CloudFileDirectory rootDir = share.GetRootDirectoryReference();
+                CloudFileDirectory fileDir = rootDir.GetDirectoryReference(blobDirectory);
+
+                if (fileDir.Exists(null, null))
+                {
+                    CloudFile cfile = fileDir.GetFileReference(fileName);
+                    {
+                        if (file)
+                        {
+                            str a = File::SendFileToTempStore(file.getStream(),fileName);
+                        }
+                        try
+                        {
+                            cfile.UploadFromStream(fileStream,null,null,null);
+                            ret = true;
+                        }
+                        catch(Exception::Error)
+                        {
+                            Error("@SYS79594");
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            error("@GCN447");
+        }
+
+        return ret;
+    }
+
+    static System.IO.MemoryStream readAzureFile(AzureFilesConfig   _filesConfig, Filename    _fileName)
+    {
+        AzureParameters    azureParameters = AzureParameters::find();
+
+        str         blobName            = azureParameters.AzureBlobName;
+        str         blobPass            = azureParameters.AzureBlobPass;
+        str         blobShareName       = azureParameters.AzureBlobShareName;
+        str         blobDirectory       = _filesConfig.OrigPath;
+        str         fileName            = _fileName;
+
+        System.IO.MemoryStream memoryStream;
+
+        var storageCredentials = new Microsoft.WindowsAzure.Storage.Auth.StorageCredentials(blobName, blobPass);
+
+        CloudStorageAccount storageAccount = new Microsoft.WindowsAzure.Storage.CloudStorageAccount(storageCredentials, true);
+
+        CloudFileClient fileClient = storageAccount.CreateCloudFileClient();
+
+        CloudFileShare share = fileClient.GetShareReference(blobShareName);
+
+        if (share.Exists(null, null))
+        {
+            CloudFileDirectory rootDir = share.GetRootDirectoryReference();
+
+            CloudFileDirectory fileDir = rootDir.GetDirectoryReference(blobDirectory);
+
+            if (fileDir.Exists(null, null))
+            {
+                CloudFile cFile = fileDir.GetFileReference(_fileName);
+
+                if (cFile.Exists(null, null))
+                {
+                    memoryStream = new System.IO.MemoryStream();
+                    cFile.DownloadToStream(memoryStream, null, null, null);
+                }
+            }
+        }
+
+        return memoryStream;
+    }
+
+    static boolean deleteFile(AzureFilesConfig   _filesConfig, Filename    _fileName)
+    {
+        AzureParameters    azureParameters = AzureParameters::find();
+
+        str         blobName            = azureParameters.AzureBlobName;
+        str         blobPass            = azureParameters.AzureBlobPass;
+        str         blobShareName       = azureParameters.AzureBlobShareName;
+        str         blobDirectory       = _filesConfig.OrigPath;
+        str         fileName            = _fileName;
+        boolean     ret;
+
+        System.IO.MemoryStream memoryStream;
+
+        var storageCredentials = new Microsoft.WindowsAzure.Storage.Auth.StorageCredentials(blobName, blobPass);
+
+        CloudStorageAccount storageAccount = new Microsoft.WindowsAzure.Storage.CloudStorageAccount(storageCredentials, true);
+
+        CloudFileClient fileClient = storageAccount.CreateCloudFileClient();
+
+        CloudFileShare share = fileClient.GetShareReference(blobShareName);
+
+        if (share.Exists(null, null))
+        {
+            CloudFileDirectory rootDir = share.GetRootDirectoryReference();
+
+            CloudFileDirectory fileDir = rootDir.GetDirectoryReference(blobDirectory);
+
+            if (fileDir.Exists(null, null))
+            {
+                CloudFile cFile = fileDir.GetFileReference(_fileName);
+
+                if (cFile.Exists(null, null))
+                {
+                    memoryStream = new System.IO.MemoryStream();
+                    cFile.Delete(null, null, null);
+                    ret = true;
+                }
+            }
+        }
+
+        return ret;
+    }
+
+    static container getDirectoryFiles(AzureFilesConfig   _filesConfig)
+    {
+        AzureParameters    azureParameters = AzureParameters::find();
+
+        str         blobName            = azureParameters.AzureBlobName;
+        str         blobPass            = azureParameters.AzureBlobPass;
+        str         blobShareName       = azureParameters.AzureBlobShareName;
+        str         blobDirectory       = _filesConfig.OrigPath;
+        container   ret;
+
+        System.IO.MemoryStream memoryStream;
+
+        var storageCredentials = new Microsoft.WindowsAzure.Storage.Auth.StorageCredentials(blobName, blobPass);
+
+        CloudStorageAccount storageAccount = new Microsoft.WindowsAzure.Storage.CloudStorageAccount(storageCredentials, true);
+
+        CloudFileClient fileClient = storageAccount.CreateCloudFileClient();
+
+        CloudFileShare share = fileClient.GetShareReference(blobShareName);
+
+        if (share.Exists(null, null))
+        {
+            CloudFileDirectory rootDir = share.GetRootDirectoryReference();
+
+            CloudFileDirectory fileDir = rootDir.GetDirectoryReference(blobDirectory);
+
+            if (fileDir.Exists(null, null))
+            {
+                var fileList = fileDir.ListFilesAndDirectories(null, null);
+
+                var enumerator = fileList.GetEnumerator();
+ 
+                while (enumerator.MoveNext())
+                {
+                    IListFileItem fileItem = enumerator.Current;
+                
+                    if (fileItem is Microsoft.WindowsAzure.Storage.File.CloudFile)
+                    {
+                        Filename filepath;
+                        Filename filename;
+                        Filename fileType;
+                    
+                        [filepath, filename, fileType] = fileNameSplit(fileItem.Uri.LocalPath);
+                                        
+                        ret = conIns(ret, conLen(ret)+1, filename+fileType);
+                    }
+                }
+            }
+        }
+
+        return ret;
+    }
+
+}
